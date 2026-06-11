@@ -606,26 +606,45 @@ ${directPayText}
         windowHeight: clonedElement.scrollHeight
       });
 
-      const imageData = canvas.toDataURL('image/png');
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
       const margin = 10;
       const printableWidth = pageWidth - margin * 2;
       const printableHeight = pageHeight - margin * 2;
-      const imageHeight = (canvas.height * printableWidth) / canvas.width;
+      const pageCanvasHeight = Math.floor((canvas.width * printableHeight) / printableWidth);
+      let renderedHeight = 0;
+      let isFirstPage = true;
 
-      let remainingHeight = imageHeight;
-      let yPosition = margin;
+      while (renderedHeight < canvas.height) {
+        const sliceHeight = Math.min(pageCanvasHeight, canvas.height - renderedHeight);
+        const pageCanvas = document.createElement('canvas');
+        pageCanvas.width = canvas.width;
+        pageCanvas.height = sliceHeight;
 
-      pdf.addImage(imageData, 'PNG', margin, yPosition, printableWidth, imageHeight);
-      remainingHeight -= printableHeight;
+        const pageContext = pageCanvas.getContext('2d');
+        pageContext.drawImage(
+          canvas,
+          0,
+          renderedHeight,
+          canvas.width,
+          sliceHeight,
+          0,
+          0,
+          canvas.width,
+          sliceHeight
+        );
 
-      while (remainingHeight > 0) {
-        pdf.addPage();
-        yPosition = margin - (imageHeight - remainingHeight);
-        pdf.addImage(imageData, 'PNG', margin, yPosition, printableWidth, imageHeight);
-        remainingHeight -= printableHeight;
+        const pageImageData = pageCanvas.toDataURL('image/png');
+        const pageImageHeight = (sliceHeight * printableWidth) / canvas.width;
+
+        if (!isFirstPage) {
+          pdf.addPage();
+        }
+
+        pdf.addImage(pageImageData, 'PNG', margin, margin, printableWidth, pageImageHeight);
+        renderedHeight += sliceHeight;
+        isFirstPage = false;
       }
 
       const safeFileName = `SPMS-${generatedQuote.quoteId}-${generatedQuote.vendorName}`
