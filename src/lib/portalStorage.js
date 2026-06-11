@@ -162,10 +162,48 @@ export const fileToDataUrl = (file) =>
     reader.readAsDataURL(file);
   });
 
+const loadImageElement = (file) =>
+  new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const image = new Image();
+
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(image);
+    };
+
+    image.onerror = (error) => {
+      URL.revokeObjectURL(objectUrl);
+      reject(error);
+    };
+
+    image.src = objectUrl;
+  });
+
+export const fileToOptimizedDataUrl = async (file) => {
+  try {
+    const image = await loadImageElement(file);
+    const maxDimension = 1280;
+    const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
+    const canvas = document.createElement('canvas');
+
+    canvas.width = Math.max(1, Math.round(image.width * scale));
+    canvas.height = Math.max(1, Math.round(image.height * scale));
+
+    const context = canvas.getContext('2d');
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+    return canvas.toDataURL('image/jpeg', 0.72);
+  } catch (error) {
+    console.warn('Unable to optimize image, falling back to raw data URL.', error);
+    return fileToDataUrl(file);
+  }
+};
+
 export const uploadPortalImage = async (file) => {
   const storage = getFirebaseStorage();
   if (!storage) {
-    return fileToDataUrl(file);
+    return fileToOptimizedDataUrl(file);
   }
 
   const extension = file.name?.split('.').pop() || 'jpg';
@@ -173,9 +211,19 @@ export const uploadPortalImage = async (file) => {
     globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const imageRef = storageRef(storage, `portal-images/${randomId}.${extension}`);
 
-  await uploadBytes(imageRef, file, {
-    contentType: file.type || 'application/octet-stream'
-  });
+  try {
+    await uploadBytes(imageRef, file, {
+      contentType: file.type || 'application/octet-stream'
+    });
+  } catch (error) {
+    console.warn('Unable to upload to Firebase Storage, falling back to embedded image.', error);
+    return fileToOptimizedDataUrl(file);
+  }
 
-  return getDownloadURL(imageRef);
+  try {
+    return await getDownloadURL(imageRef);
+  } catch (error) {
+    console.warn('Unable to obtain Firebase Storage URL, falling back to embedded image.', error);
+    return fileToOptimizedDataUrl(file);
+  }
 };
